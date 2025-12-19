@@ -1,12 +1,12 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { QuizScreen } from './components/QuizScreen';
 import { ResultScreen } from './components/ResultScreen';
 import { AdminPanel } from './components/AdminPanel';
 import { AdminLogin } from './components/AdminLogin';
-import { GradeLevel, Question, UserProfile } from './types';
-import { getLocalQuestions } from './storeService';
+import { GradeLevel, Question, UserProfile, CertificateConfig } from './types';
+import { getLocalQuestions, getCertConfig } from './storeService';
 
 const App: React.FC = () => {
   const [step, setStep] = useState<'welcome' | 'quiz' | 'result' | 'admin-login' | 'admin'>('welcome');
@@ -16,6 +16,14 @@ const App: React.FC = () => {
   const [userAnswers, setUserAnswers] = useState<number[]>([]);
   const [score, setScore] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
+  const [certConfig, setCertConfig] = useState<CertificateConfig>(getCertConfig());
+
+  // Reload config when switching back from admin
+  useEffect(() => {
+    if (step === 'welcome' || step === 'result') {
+      setCertConfig(getCertConfig());
+    }
+  }, [step]);
 
   const startQuiz = (userProfile: UserProfile) => {
     const localQs = getLocalQuestions(userProfile.grade);
@@ -65,7 +73,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center font-sans antialiased text-slate-900">
-      {/* Navigation Header - Website style */}
       <header className="fixed top-0 left-0 right-0 bg-white/80 backdrop-blur-md border-b border-slate-200 z-50">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2 cursor-pointer" onClick={resetQuiz}>
@@ -118,6 +125,7 @@ const App: React.FC = () => {
               total={questions.length} 
               profile={profile!} 
               onReset={resetQuiz} 
+              certConfig={certConfig}
             />
           )}
         </div>
