@@ -1,0 +1,5 @@
+{
+  "name": "Smart-Quiz & Certification Pro",
+  "description": "An interactive, AI-powered quiz application for students across different grade levels (1-9), featuring a 10-minute timer, dynamic question generation, and instant PDF certificate downloads.",
+  "requestFramePermissions": []
+}
