@@ -31,14 +31,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
   const [correctIdx, setCorrectIdx] = useState(0);
 
   // Certificate Form State
-  const [certConfig, setCertConfig] = useState<CertificateConfig>(getCertConfig());
+  const [certConfig, setCertConfig] = useState<CertificateConfig | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setQuestions(getLocalQuestions(selectedGrade));
+    const loadData = async () => {
+      const qData = await getLocalQuestions(selectedGrade);
+      setQuestions(qData);
+      const cData = await getCertConfig();
+      setCertConfig(cData);
+    };
+    loadData();
   }, [selectedGrade]);
 
-  const handleSaveQuestion = () => {
+  const handleSaveQuestion = async () => {
     if (!qText.trim() || options.some(o => !o.trim())) {
       alert("Please fill all fields");
       return;
@@ -56,7 +62,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
       updated = [...questions, newQ];
     }
     setQuestions(updated);
-    saveLocalQuestions(selectedGrade, updated);
+    await saveLocalQuestions(selectedGrade, updated);
     resetQuestionForm();
   };
 
@@ -76,11 +82,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
     setIsAdding(true);
   };
 
-  const handleDeleteQuestion = (id: string) => {
+  const handleDeleteQuestion = async (id: string) => {
     if (confirm("Delete this question?")) {
       const updated = questions.filter(q => q.id !== id);
       setQuestions(updated);
-      saveLocalQuestions(selectedGrade, updated);
+      await saveLocalQuestions(selectedGrade, updated);
     }
   };
 
@@ -91,17 +97,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
       const fetched = await fetchQuestions(selectedGrade);
       const mapped = fetched.map(q => ({ ...q, id: Math.random().toString(36).substr(2, 9) }));
       setQuestions(mapped);
-      saveLocalQuestions(selectedGrade, mapped);
-    } catch (err) {
-      alert("AI Generation failed. Check API Key or try again.");
+      await saveLocalQuestions(selectedGrade, mapped);
+    } catch (err: any) {
+      alert(err.message || "AI Generation failed. Check API Key or try again.");
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const handleSaveCertificate = () => {
-    saveCertConfig(certConfig);
-    alert("Certificate settings saved!");
+  const handleSaveCertificate = async () => {
+    if (certConfig) {
+      await saveCertConfig(certConfig);
+      alert("Certificate settings saved to database!");
+    }
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -109,13 +117,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setCertConfig({ ...certConfig, templateImage: reader.result as string, useCustomTemplate: true });
+        if (certConfig) {
+          setCertConfig({ ...certConfig, templateImage: reader.result as string, useCustomTemplate: true });
+        }
       };
       reader.readAsDataURL(file);
     }
   };
 
   const getPreviewFontStyle = () => {
+    if (!certConfig) return 'font-modern';
     switch (certConfig.nameFontFamily) {
       case 'EB Garamond': return 'font-formal';
       case 'Dancing Script': return 'font-script';
@@ -123,6 +134,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
       default: return 'font-certificate';
     }
   };
+
+  if (!certConfig) return <div className="p-10 text-center">Loading settings...</div>;
 
   return (
     <div className="flex flex-col md:flex-row flex-1 min-h-[600px] bg-slate-50">
@@ -206,6 +219,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
                       </div>
                     </div>
                   ))}
+                  {questions.length === 0 && (
+                    <div className="text-center p-20 text-slate-400 italic">No questions in database for this grade yet.</div>
+                  )}
                 </div>
               )}
             </div>

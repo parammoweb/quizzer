@@ -1,18 +1,12 @@
 
-import { Question, GradeLevel, LocalQuizData, CertificateConfig } from './types';
+import { Question, GradeLevel, CertificateConfig } from './types';
+import { dbService } from './dbService';
 
-const STORAGE_KEY = 'quiz_pro_manual_questions';
-const CERT_KEY = 'quiz_pro_cert_config';
-
-const DEFAULT_QUESTIONS: LocalQuizData = {
+const DEFAULT_QUESTIONS: Record<string, Question[]> = {
   'Class 1-2': [
     { id: '1', question: 'What is 5 + 3?', options: ['6', '7', '8', '9'], correctAnswerIndex: 2 },
     { id: '2', question: 'Which animal says "Meow"?', options: ['Dog', 'Cat', 'Cow', 'Lion'], correctAnswerIndex: 1 }
-  ],
-  'Class 3-4': [],
-  'Class 5-6': [],
-  'Class 7-8': [],
-  'Class 9': []
+  ]
 };
 
 const DEFAULT_CERT_CONFIG: CertificateConfig = {
@@ -30,30 +24,34 @@ const DEFAULT_CERT_CONFIG: CertificateConfig = {
   nameFontFamily: 'Great Vibes'
 };
 
-export const getLocalQuestions = (grade: GradeLevel): Question[] => {
-  const data = localStorage.getItem(STORAGE_KEY);
-  if (!data) return DEFAULT_QUESTIONS[grade] || [];
-  const parsed: LocalQuizData = JSON.parse(data);
-  return parsed[grade] || [];
+export const getLocalQuestions = async (grade: GradeLevel): Promise<Question[]> => {
+  const dbQs = await dbService.getQuestions(grade);
+  if (dbQs.length === 0 && DEFAULT_QUESTIONS[grade]) {
+    return DEFAULT_QUESTIONS[grade];
+  }
+  return dbQs;
 };
 
-export const saveLocalQuestions = (grade: GradeLevel, questions: Question[]) => {
-  const data = localStorage.getItem(STORAGE_KEY);
-  const parsed: LocalQuizData = data ? JSON.parse(data) : { ...DEFAULT_QUESTIONS };
-  parsed[grade] = questions;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+export const saveLocalQuestions = async (grade: GradeLevel, questions: Question[]) => {
+  await dbService.saveQuestions(grade, questions);
 };
 
-export const getAllLocalQuestions = (): LocalQuizData => {
-  const data = localStorage.getItem(STORAGE_KEY);
-  return data ? JSON.parse(data) : { ...DEFAULT_QUESTIONS };
+export const getCertConfig = async (): Promise<CertificateConfig> => {
+  const config = await dbService.getCertConfig();
+  return config || DEFAULT_CERT_CONFIG;
 };
 
-export const getCertConfig = (): CertificateConfig => {
-  const data = localStorage.getItem(CERT_KEY);
-  return data ? JSON.parse(data) : DEFAULT_CERT_CONFIG;
+export const saveCertConfig = async (config: CertificateConfig) => {
+  await dbService.saveCertConfig(config);
 };
 
-export const saveCertConfig = (config: CertificateConfig) => {
-  localStorage.setItem(CERT_KEY, JSON.stringify(config));
+export const saveAttempt = async (studentName: string, grade: GradeLevel, score: number, total: number) => {
+  await dbService.saveAttempt({
+    id: `attempt-${Date.now()}`,
+    studentName,
+    grade,
+    score,
+    total,
+    timestamp: Date.now()
+  });
 };

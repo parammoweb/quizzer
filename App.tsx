@@ -6,27 +6,47 @@ import { ResultScreen } from './components/ResultScreen';
 import { AdminPanel } from './components/AdminPanel';
 import { AdminLogin } from './components/AdminLogin';
 import { GradeLevel, Question, UserProfile, CertificateConfig } from './types';
-import { getLocalQuestions, getCertConfig } from './storeService';
+import { getLocalQuestions, getCertConfig, saveAttempt } from './storeService';
 
 const App: React.FC = () => {
-  const [step, setStep] = useState<'welcome' | 'quiz' | 'result' | 'admin-login' | 'admin'>('welcome');
+  // Navigation state
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  const [step, setStep] = useState<'welcome' | 'quiz' | 'result'>('welcome');
+  
+  // Auth and data state
   const [isAdminAuth, setIsAdminAuth] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [userAnswers, setUserAnswers] = useState<number[]>([]);
   const [score, setScore] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
-  const [certConfig, setCertConfig] = useState<CertificateConfig>(getCertConfig());
+  const [certConfig, setCertConfig] = useState<CertificateConfig | null>(null);
 
-  // Reload config when switching back from admin
+  // Simple Router Logic
   useEffect(() => {
-    if (step === 'welcome' || step === 'result') {
-      setCertConfig(getCertConfig());
-    }
-  }, [step]);
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
-  const startQuiz = (userProfile: UserProfile) => {
-    const localQs = getLocalQuestions(userProfile.grade);
+  // Sync cert config from DB
+  useEffect(() => {
+    const loadConfig = async () => {
+      const config = await getCertConfig();
+      setCertConfig(config);
+    };
+    loadConfig();
+  }, [currentPath, step]);
+
+  const navigateTo = (path: string) => {
+    window.history.pushState({}, '', path);
+    setCurrentPath(path);
+  };
+
+  const startQuiz = async (userProfile: UserProfile) => {
+    const localQs = await getLocalQuestions(userProfile.grade);
     
     if (localQs.length < 1) {
       setError(`No questions found for ${userProfile.grade}. Admin needs to add questions first.`);
@@ -40,26 +60,32 @@ const App: React.FC = () => {
     setStep('quiz');
   };
 
-  const completeQuiz = (finalAnswers: number[]) => {
+  const completeQuiz = async (finalAnswers: number[]) => {
     let finalScore = 0;
     questions.forEach((q, idx) => {
       if (finalAnswers[idx] === q.correctAnswerIndex) {
         finalScore++;
       }
     });
+    
     setScore(finalScore);
     setUserAnswers(finalAnswers);
+    
+    // Save to Database Attempt History
+    if (profile) {
+      await saveAttempt(profile.name, profile.grade, finalScore, questions.length);
+    }
+    
     setStep('result');
   };
 
   const handleAdminAuth = () => {
     setIsAdminAuth(true);
-    setStep('admin');
   };
 
   const handleLogout = () => {
     setIsAdminAuth(false);
-    setStep('welcome');
+    navigateTo('/');
   };
 
   const resetQuiz = () => {
@@ -69,7 +95,12 @@ const App: React.FC = () => {
     setScore(0);
     setProfile(null);
     setError(null);
+    navigateTo('/');
   };
+
+  const isAdminRoute = currentPath.includes('/admin');
+
+  if (!certConfig) return <div className="min-h-screen bg-slate-100 flex items-center justify-center">Loading Database...</div>;
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center font-sans antialiased text-slate-900">
@@ -80,17 +111,26 @@ const App: React.FC = () => {
             <span className="font-bold text-xl tracking-tight text-slate-800">SmartQuiz<span className="text-blue-600">Pro</span></span>
           </div>
           <div className="flex items-center gap-6">
-            <button 
-              onClick={() => setStep(isAdminAuth ? 'admin' : 'admin-login')}
-              className="text-sm font-semibold text-slate-500 hover:text-blue-600 transition-colors flex items-center gap-1"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37a1.724 1.724 0 002.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              Admin
-            </button>
-            {isAdminAuth && (
+            {!isAdminRoute ? (
+              <button 
+                onClick={() => navigateTo('/admin')}
+                className="text-sm font-semibold text-slate-500 hover:text-blue-600 transition-colors flex items-center gap-1"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37a1.724 1.724 0 002.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Admin Panel
+              </button>
+            ) : (
+              <button 
+                onClick={() => navigateTo('/')}
+                className="text-sm font-semibold text-slate-500 hover:text-blue-600 transition-colors"
+              >
+                Student View
+              </button>
+            )}
+            {isAdminAuth && isAdminRoute && (
               <button onClick={handleLogout} className="text-sm font-bold text-red-500 hover:text-red-700">Logout</button>
             )}
           </div>
@@ -99,34 +139,40 @@ const App: React.FC = () => {
 
       <main className="w-full max-w-5xl mt-20 mb-10 px-4">
         <div className="bg-white rounded-[2rem] shadow-2xl shadow-blue-900/10 overflow-hidden min-h-[600px] flex flex-col border border-white/50 backdrop-blur-xl">
-          {step === 'welcome' && (
-            <WelcomeScreen 
-              onStart={startQuiz} 
-              onAdmin={() => setStep('admin-login')}
-              initialError={error} 
-            />
-          )}
-          {step === 'admin-login' && (
-            <AdminLogin onLogin={handleAdminAuth} onCancel={() => setStep('welcome')} />
-          )}
-          {step === 'admin' && (
-            <AdminPanel onBack={() => setStep('welcome')} onLogout={handleLogout} />
-          )}
-          {step === 'quiz' && (
-            <QuizScreen 
-              questions={questions} 
-              onComplete={completeQuiz} 
-              grade={profile?.grade || 'Class 1-2'} 
-            />
-          )}
-          {step === 'result' && (
-            <ResultScreen 
-              score={score} 
-              total={questions.length} 
-              profile={profile!} 
-              onReset={resetQuiz} 
-              certConfig={certConfig}
-            />
+          {/* Admin Flow */}
+          {isAdminRoute ? (
+            !isAdminAuth ? (
+              <AdminLogin onLogin={handleAdminAuth} onCancel={() => navigateTo('/')} />
+            ) : (
+              <AdminPanel onBack={() => navigateTo('/')} onLogout={handleLogout} />
+            )
+          ) : (
+            /* Student Flow */
+            <>
+              {step === 'welcome' && (
+                <WelcomeScreen 
+                  onStart={startQuiz} 
+                  onAdmin={() => navigateTo('/admin')}
+                  initialError={error} 
+                />
+              )}
+              {step === 'quiz' && (
+                <QuizScreen 
+                  questions={questions} 
+                  onComplete={completeQuiz} 
+                  grade={profile?.grade || 'Class 1-2'} 
+                />
+              )}
+              {step === 'result' && (
+                <ResultScreen 
+                  score={score} 
+                  total={questions.length} 
+                  profile={profile!} 
+                  onReset={resetQuiz} 
+                  certConfig={certConfig}
+                />
+              )}
+            </>
           )}
         </div>
       </main>
