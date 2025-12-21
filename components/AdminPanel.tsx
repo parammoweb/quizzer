@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GradeLevel, Question, CertificateConfig, CertFont } from '../types';
 import { getLocalQuestions, saveLocalQuestions, getCertConfig, saveCertConfig } from '../storeService';
 import { fetchQuestions } from '../geminiService';
+import { dbService } from '../dbService';
 
 interface AdminPanelProps {
   onBack: () => void;
@@ -23,6 +24,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   // Question Form State
@@ -33,6 +35,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
   // Certificate Form State
   const [certConfig, setCertConfig] = useState<CertificateConfig | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isCloud = dbService.isCloudEnabled();
 
   useEffect(() => {
     const loadData = async () => {
@@ -49,6 +53,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
       alert("Please fill all fields");
       return;
     }
+    setIsSaving(true);
     let updated: Question[];
     if (editingId) {
       updated = questions.map(q => q.id === editingId ? { ...q, question: qText, options, correctAnswerIndex: correctIdx } : q);
@@ -61,9 +66,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
       };
       updated = [...questions, newQ];
     }
-    setQuestions(updated);
-    await saveLocalQuestions(selectedGrade, updated);
-    resetQuestionForm();
+    
+    try {
+      await saveLocalQuestions(selectedGrade, updated);
+      setQuestions(updated);
+      resetQuestionForm();
+    } catch (e) {
+      alert("Failed to save to database");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const resetQuestionForm = () => {
@@ -85,8 +97,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
   const handleDeleteQuestion = async (id: string) => {
     if (confirm("Delete this question?")) {
       const updated = questions.filter(q => q.id !== id);
-      setQuestions(updated);
-      await saveLocalQuestions(selectedGrade, updated);
+      try {
+        await saveLocalQuestions(selectedGrade, updated);
+        setQuestions(updated);
+      } catch (e) {
+        alert("Delete failed");
+      }
     }
   };
 
@@ -96,10 +112,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
     try {
       const fetched = await fetchQuestions(selectedGrade);
       const mapped = fetched.map(q => ({ ...q, id: Math.random().toString(36).substr(2, 9) }));
-      setQuestions(mapped);
       await saveLocalQuestions(selectedGrade, mapped);
+      setQuestions(mapped);
     } catch (err: any) {
-      alert(err.message || "AI Generation failed. Check API Key or try again.");
+      alert(err.message || "AI Generation failed.");
     } finally {
       setIsGenerating(false);
     }
@@ -107,8 +123,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
 
   const handleSaveCertificate = async () => {
     if (certConfig) {
-      await saveCertConfig(certConfig);
-      alert("Certificate settings saved to database!");
+      setIsSaving(true);
+      try {
+        await saveCertConfig(certConfig);
+        alert("Certificate settings saved to Cloud!");
+      } catch (e) {
+        alert("Cloud save failed");
+      } finally {
+        setIsSaving(false);
+      }
     }
   };
 
@@ -135,10 +158,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
     }
   };
 
-  if (!certConfig) return <div className="p-10 text-center">Loading settings...</div>;
+  if (!certConfig) return <div className="p-10 text-center">Connecting to Cloud...</div>;
 
   return (
-    <div className="flex flex-col md:flex-row flex-1 min-h-[600px] bg-slate-50">
+    <div className="flex flex-col md:flex-row flex-1 min-h-[600px] bg-slate-50 relative">
+      {isSaving && (
+        <div className="absolute inset-0 bg-white/50 backdrop-blur-[2px] z-[100] flex items-center justify-center">
+           <div className="bg-white p-6 rounded-2xl shadow-2xl flex items-center gap-4">
+              <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <span className="font-bold text-slate-700">Syncing with Atlas...</span>
+           </div>
+        </div>
+      )}
+
       <div className="w-full md:w-64 bg-slate-900 text-white p-6 flex flex-col justify-between">
         <div>
           <div className="flex items-center gap-2 mb-8">
@@ -172,9 +204,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
             </div>
           </nav>
         </div>
-        <div className="pt-6 mt-6 border-t border-slate-800 space-y-2">
-          <button onClick={onBack} className="w-full px-4 py-3 rounded-xl text-sm font-bold text-slate-400 hover:text-white hover:bg-slate-800 flex items-center gap-2">Home</button>
-          <button onClick={onLogout} className="w-full px-4 py-3 rounded-xl text-sm font-bold text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-all">Logout</button>
+        <div className="pt-6 mt-6 border-t border-slate-800 space-y-4">
+          <div className="px-2">
+             <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">
+                <div className={`w-2 h-2 rounded-full ${isCloud ? 'bg-green-500' : 'bg-orange-500'}`}></div>
+                {isCloud ? 'MongoDB Atlas' : 'Local Only'}
+             </div>
+             <p className="text-[9px] text-slate-600 leading-tight">
+                {isCloud ? 'Connected to Cluster0' : 'Configure Env keys for Cloud'}
+             </p>
+          </div>
+          <div className="space-y-2">
+            <button onClick={onBack} className="w-full px-4 py-3 rounded-xl text-sm font-bold text-slate-400 hover:text-white hover:bg-slate-800 flex items-center gap-2">Home</button>
+            <button onClick={onLogout} className="w-full px-4 py-3 rounded-xl text-sm font-bold text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-all">Logout</button>
+          </div>
         </div>
       </div>
 
@@ -203,7 +246,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
                       ))}
                     </div>
                     <div className="flex gap-4">
-                      <button onClick={handleSaveQuestion} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-bold">Save</button>
+                      <button onClick={handleSaveQuestion} disabled={isSaving} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-bold disabled:opacity-50">Save</button>
                       <button onClick={resetQuestionForm} className="px-8 py-4 bg-white text-slate-500 rounded-2xl border border-slate-200">Cancel</button>
                     </div>
                   </div>
@@ -220,7 +263,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
                     </div>
                   ))}
                   {questions.length === 0 && (
-                    <div className="text-center p-20 text-slate-400 italic">No questions in database for this grade yet.</div>
+                    <div className="text-center p-20 text-slate-400 italic">No questions in cloud database for this grade yet.</div>
                   )}
                 </div>
               )}
@@ -230,7 +273,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
           <>
             <header className="p-8 border-b border-slate-200 bg-white">
               <h2 className="text-2xl font-bold text-slate-800">Certificate Designer</h2>
-              <p className="text-slate-500 text-sm">Upload your ready PDF image and position the name precisely.</p>
+              <p className="text-slate-500 text-sm">Configure your certificate template and sync to MongoDB Atlas.</p>
             </header>
             <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="space-y-6">
@@ -311,7 +354,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
                     </div>
                   </div>
                 )}
-                <button onClick={handleSaveCertificate} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all">Save Designer Settings</button>
+                <button onClick={handleSaveCertificate} disabled={isSaving} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all disabled:opacity-50">Save & Sync to Atlas</button>
               </div>
 
               {/* Precise Preview */}
@@ -339,9 +382,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, onLogout }) => {
                        <span className="font-certificate text-2xl text-slate-800">Student Name</span>
                     </div>
                   )}
-                </div>
-                <div className="mt-4 text-[10px] text-slate-500 font-medium text-center">
-                  Drag the sliders to align the name exactly onto the blank line of your certificate.
                 </div>
               </div>
             </div>
